@@ -88,6 +88,7 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->nice_val = 3;
 
   release(&ptable.lock);
 
@@ -319,41 +320,147 @@ wait(void)
 //  - swtch to start running that process
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
-void
-scheduler(void)
-{
-  struct proc *p;
-  struct cpu *c = mycpu();
-  c->proc = 0;
+// void
+// scheduler(void)
+// {
+//   struct proc *p;
+//   struct cpu *c = mycpu();
+//   c->proc = 0;
   
-  for(;;){
-    // Enable interrupts on this processor.
-    sti();
+//   for(;;){
+//     // Enable interrupts on this processor.
+//     sti();
 
-    // Loop over process table looking for process to run.
-    acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
+//     // Loop over process table looking for process to run.
+//     acquire(&ptable.lock);
+//     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+//       if(p->state != RUNNABLE)
+//         continue;
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
+//       // Switch to chosen process.  It is the process's job
+//       // to release ptable.lock and then reacquire it
+//       // before jumping back to us.
+//       c->proc = p;
+//       switchuvm(p);
+//       p->state = RUNNING;
 
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
+//       swtch(&(c->scheduler), p->context);
+//       switchkvm();
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
+//       // Process is done running for now.
+//       // It should have changed its p->state before coming back.
+//       c->proc = 0;
+//     }
+//     release(&ptable.lock);
+
+//   }
+// }
+
+// void
+// scheduler(void)
+// {
+//   struct proc *p, *p1;
+//   struct cpu *c = mycpu();
+//   c->proc = 0;
+  
+//   for(;;){
+//     // Enable interrupts on this processor.
+//     sti();
+//     struct proc *highP;
+//     // Loop over process table looking for process to run.
+//     acquire(&ptable.lock);
+//     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+//       if(p->state != RUNNABLE)
+//         continue;
+
+//       // Switch to chosen process.  It is the process's job
+//       // to release ptable.lock and then reacquire it
+//       // before jumping back to us.
+//       highP = p;
+//       //choose one with highest nice_val
+//       for(p1 = ptable.proc; p1 < &ptable.proc[NPROC]; p1++){
+//         if(p1->state != RUNNABLE)
+//           continue;
+//         if(highP->nice_val > p1->nice_val)   //larger value, lower nice_val
+//           highP = p1;
+//       }
+//       p = highP;
+//       c->proc = p;
+//       switchuvm(p);
+//       p->state = RUNNING;
+
+//       swtch(&(c->scheduler), p->context);
+//       switchkvm();
+
+//       // Process is done running for now.
+//       // It should have changed its p->state before coming back.
+//       c->proc = 0;
+//     }
+//     release(&ptable.lock);
+
+//   }
+// }
+
+// #include "types.h"
+// #include "stat.h"
+// #include "user.h"
+// #include "proc.h" // Assuming proc.h has the nice_val field for priority
+
+#define PRIORITY_SCHEDULER // Uncomment to enable priority-based scheduling
+
+void scheduler(void) {
+    struct proc *p, *p1;
+    struct cpu *c = mycpu();
+    c->proc = 0;
+
+    for (;;) {
+        sti();  // Enable interrupts
+
+        #ifdef PRIORITY_SCHEDULER
+        struct proc *highP = 0; // Pointer to the highest-priority process
+        acquire(&ptable.lock);
+        for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+            if (p->state != RUNNABLE)
+                continue;
+
+            // Choose process with the lowest nice_val (highest priority)
+            highP = p;
+            for (p1 = ptable.proc; p1 < &ptable.proc[NPROC]; p1++) {
+                if (p1->state == RUNNABLE && p1->nice_val < highP->nice_val) {
+                    highP = p1;
+                }
+            }
+
+            // Schedule the highest-priority process
+            p = highP;
+            c->proc = p;
+            switchuvm(p);
+            p->state = RUNNING;
+            swtch(&(c->scheduler), p->context);
+            switchkvm();
+
+            c->proc = 0;
+        }
+        release(&ptable.lock);
+        #else
+        // Default Round Robin scheduler
+        acquire(&ptable.lock);
+        for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+            if (p->state != RUNNABLE)
+                continue;
+
+            c->proc = p;
+            switchuvm(p);
+            p->state = RUNNING;
+            swtch(&(c->scheduler), p->context);
+            switchkvm();
+            c->proc = 0;
+        }
+        release(&ptable.lock);
+        #endif
     }
-    release(&ptable.lock);
-
-  }
 }
+
 
 // Enter scheduler.  Must hold only ptable.lock
 // and have changed proc->state. Saves and restores
@@ -523,7 +630,7 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    cprintf("%d %s %s", p->pid, state, p->name);
+    cprintf("pid:%d, state:%s, nice_val:%d, name:%s", p->pid, state, p->nice_val, p->name);
     if(p->state == SLEEPING){
       getcallerpcs((uint*)p->context->ebp+2, pc);
       for(i=0; i<10 && pc[i] != 0; i++)
@@ -531,4 +638,30 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+int
+nice(int pid, int new_nice)
+{
+    // Validate new_nice after fetching to ensure it’s within the correct bounds.
+    if (new_nice < 1 || new_nice > 5)
+        return -1;
+    
+    struct proc *p;
+    acquire(&ptable.lock);
+
+    // Loop through the process table to find the process with the given PID
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        if (p->pid == pid) {
+            int old_nice = p->nice_val;
+            p->nice_val = new_nice;
+            // p->priority = new_nice;
+            procdump();
+            release(&ptable.lock);
+            return old_nice;
+            break;
+        }
+    }
+    release(&ptable.lock);
+    return -1;
 }
