@@ -655,8 +655,7 @@ nice(int pid, int new_nice)
         if (p->pid == pid) {
             int old_nice = p->nice_val;
             p->nice_val = new_nice;
-            // p->priority = new_nice;
-            procdump();
+            // procdump();
             release(&ptable.lock);
             return old_nice;
             break;

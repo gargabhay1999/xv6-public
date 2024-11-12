@@ -17,30 +17,32 @@ void find_primes(int priority) {
         if (prime) {
             count++;
             printf(1, "PID: %d, Priority: %d, Prime: %d\n", pid, priority, i);
-            sleep(100); // Sleep for a small amount to allow context switching
+            sleep(10); // Sleep for a small amount to allow context switching
         }
     }
 }
 
 int main() {
+    // Decrease the nice_val of one process
+    
     int pid3 = fork();
     if (pid3 == 0) {
-        nice(getpid(), 1); // Lower priority
-        find_primes(1);
+        nice(getpid(), 5); // Lower priority
+        find_primes(5);
         exit();
     }
 
     int pid2 = fork();
     if (pid2 == 0) {
-        nice(getpid(), 5); // Medium priority
-        find_primes(5);
+        nice(getpid(), 4); // Medium priority
+        find_primes(4);
         exit();
     }
 
     int pid1 = fork();
     if (pid1 == 0) {
-        nice(getpid(), 5); // Higher priority
-        find_primes(5);
+        nice(getpid(), 2); // Higher priority
+        find_primes(2);
         exit();
     }
 
