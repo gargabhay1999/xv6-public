@@ -17,7 +17,7 @@ void find_primes(int priority) {
         if (prime) {
             count++;
             printf(1, "PID: %d, Priority: %d, Prime: %d\n", pid, priority, i);
-            sleep(10); // Sleep for a small amount to allow context switching
+            sleep(100); // Sleep for a small amount to allow context switching
         }
     }
 }

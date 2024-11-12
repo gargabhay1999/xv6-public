@@ -409,7 +409,7 @@ wait(void)
 #define PRIORITY_SCHEDULER // Uncomment to enable priority-based scheduling
 
 void scheduler(void) {
-    struct proc *p, *p1;
+    struct proc *p;
     struct cpu *c = mycpu();
     c->proc = 0;
 
@@ -417,6 +417,7 @@ void scheduler(void) {
         sti();  // Enable interrupts
 
         #ifdef PRIORITY_SCHEDULER
+        struct proc *p1;
         struct proc *highP = 0; // Pointer to the highest-priority process
         acquire(&ptable.lock);
         for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
