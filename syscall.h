@@ -20,3 +20,11 @@
 #define SYS_link   19
 #define SYS_mkdir  20
 #define SYS_close  21
+#define SYS_set_strace_conf  22
+#define SYS_get_strace_conf  23
+#define SYS_add_to_strace_dump 24
+#define SYS_print_strace_dump 25
+#define SYS_get_strace_ofile 26
+#define SYS_add_to_strace_stat 27
+#define SYS_clear_strace_stats 28
+#define SYS_print_strace_stats 29

@@ -53,6 +53,7 @@ int fork1(void);  // Fork but panics on failure.
 void panic(char*);
 struct cmd *parsecmd(char*);
 
+char straceops[] = {"0"};
 // Execute cmd.  Never returns.
 void
 runcmd(struct cmd *cmd)
@@ -167,6 +168,14 @@ main(void)
     if(fork1() == 0)
       runcmd(parsecmd(buf));
     wait();
+    // reset strace configs
+    if(!(sizeof(buf)>=6 && buf[0]=='s' && buf[1]=='t' && buf[2] == 'r' && buf[3] == 'a' && buf[4] == 'c' && buf[5] == 'e' && (sizeof(buf)==6 || buf[6]==' '))){
+      // printf(1,"Resetting conf\n");
+      set_strace_conf(0,1,-1);
+      set_strace_conf(0,2,-1);
+      set_strace_conf(0,3,-1);
+      set_strace_conf(0,4,-1);
+    }
   }
   exit();
 }

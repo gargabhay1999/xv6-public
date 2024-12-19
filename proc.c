@@ -7,6 +7,28 @@
 #include "proc.h"
 #include "spinlock.h"
 
+#define STRACE_DUMP_N 10
+
+struct strace_entry {
+  int pid;
+  char command_name[16];
+  char* sys_call_name;
+  int return_value;
+  char time[16];
+};
+
+struct strace_entry strace_dump_data[STRACE_DUMP_N];
+int strace_dump_idx = -1;
+int strace_dump_size = 0;
+
+struct strace_stat_entry {
+  int calls;
+  int errors;
+  long long int ticks;
+};
+
+struct strace_stat_entry strace_stats[21];
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -17,6 +39,14 @@ static struct proc *initproc;
 int nextpid = 1;
 extern void forkret(void);
 extern void trapret(void);
+
+int global_strace_conf[] = {0,-1,-1,-1,-1,-1};
+int* global_strace_ofile; // int pointer to file* to avoid incomplete dereference errors
+//0: 0/1 -> on/off
+//1: 00/25 -> -e
+//2: 0/1/2 null /-s/ -f
+//3: 0 -c
+//4: 0 -o
 
 static void wakeup1(void *chan);
 
@@ -111,6 +141,7 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
+  memset(p->strace_conf,-1, sizeof(p->strace_conf));
 
   return p;
 }
@@ -209,6 +240,9 @@ fork(void)
   np->cwd = idup(curproc->cwd);
 
   safestrcpy(np->name, curproc->name, sizeof(curproc->name));
+  for(i=0;i<5;i++){
+    np->strace_conf[i] = curproc->strace_conf[i];
+  }
 
   pid = np->pid;
 
@@ -295,6 +329,7 @@ wait(void)
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
+        memset(p->strace_conf, -1, sizeof(p->strace_conf));
         release(&ptable.lock);
         return pid;
       }
@@ -485,6 +520,7 @@ kill(int pid)
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->pid == pid){
       p->killed = 1;
+      memset(p->strace_conf, -1, sizeof(p->strace_conf));
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING)
         p->state = RUNNABLE;
@@ -531,4 +567,143 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+
+int set_strace_conf(int pid, int idx, int val) {
+    if (idx == 4) {
+        struct proc *p;
+        for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+            if (p->state == UNUSED)
+                continue;
+            if (p->pid == pid) {
+                global_strace_ofile = (int *)filedup(p->ofile[val]);
+                global_strace_conf[idx] = val;
+                p->strace_conf[idx] = val;
+                return 0;
+            }
+        }
+    }
+    if (pid == 0) {
+        global_strace_conf[idx] = val;
+        return 0;
+    } else {
+        struct proc *p;
+        for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+            if (p->state == UNUSED)
+                continue;
+            if (p->pid == pid) {
+                p->strace_conf[idx] = val;
+                return 0;
+            }
+        }
+    }
+    return -1;
+}
+
+
+
+int get_strace_conf(int pid, int idx) {
+    if (pid == 0) {
+        return global_strace_conf[idx];
+    } else {
+        struct proc *p;
+        for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+            if (p->state == UNUSED)
+                continue;
+            if (p->pid == pid) {
+                return p->strace_conf[idx];
+            }
+        }
+    }
+    return -1;
+}
+
+
+int get_strace_ofile(int **fp){
+  *fp = global_strace_ofile;
+  return 0;
+}
+
+
+int add_to_strace_dump(int pid, char *command_name, const char *sys_call_name, int return_value, char *time) {
+    strace_dump_idx++;
+    if (strace_dump_size < STRACE_DUMP_N) {
+        strace_dump_size++;
+    }
+    if (strace_dump_idx >= STRACE_DUMP_N) {
+        strace_dump_idx %= STRACE_DUMP_N;
+    }
+    strncpy(strace_dump_data[strace_dump_idx].command_name, command_name, sizeof(strace_dump_data[strace_dump_idx].command_name) - 1);
+    strace_dump_data[strace_dump_idx].command_name[sizeof(strace_dump_data[strace_dump_idx].command_name) - 1] = '\0';
+    strace_dump_data[strace_dump_idx].sys_call_name = (char *)sys_call_name;
+    strace_dump_data[strace_dump_idx].pid = pid;
+    strace_dump_data[strace_dump_idx].return_value = return_value;
+    strncpy(strace_dump_data[strace_dump_idx].time, time, sizeof(strace_dump_data[strace_dump_idx].time) - 1);
+    strace_dump_data[strace_dump_idx].time[sizeof(strace_dump_data[strace_dump_idx].time) - 1] = '\0';
+    return 0;
+}
+
+int print_strace_dump(void) {
+    int idx = strace_dump_idx - strace_dump_size + 1;
+    if (idx < 0) {
+        idx += STRACE_DUMP_N;
+    }
+    for (int i = 0; i < strace_dump_size; i++) {
+        cprintf("TRACE: pid = %d | command_name = %s | syscall = %s | return value = %d | time = %s\n",
+                strace_dump_data[idx].pid, strace_dump_data[idx].command_name,
+                strace_dump_data[idx].sys_call_name, strace_dump_data[idx].return_value,
+                strace_dump_data[idx].time);
+        idx = (idx + 1) % STRACE_DUMP_N;
+    }
+    return 0;
+}
+
+int add_to_strace_stat(int sys_call_num,int error, int ticks){
+  if (sys_call_num>21){
+    return 0;
+  }
+  strace_stats[sys_call_num].calls++;
+  strace_stats[sys_call_num].ticks+=ticks;
+  if(error==1){
+    strace_stats[sys_call_num].errors++;
+  }
+  return 0;
+}
+
+int clear_strace_stats(){
+  memset(strace_stats,0,sizeof(strace_stats)); 
+  return 0;
+}
+
+int normalize(double *val); 
+void ftoa_fixed(char *buffer, double value);
+const char* get_sys_call_name(int num);
+
+
+int print_strace_stats() {
+    cprintf("time\t\tcalls\terrors\tsyscall\n");
+    cprintf("-------------\t------\t-------\t-------\n");
+
+    int total_calls = 0;
+    int total_errors = 0;
+    long long int total_ticks = 0;
+
+    for (int i = 0; i < 21; i++) {
+        if (strace_stats[i].calls > 0) {
+            char buf[100] = {0};
+            ftoa_fixed(buf, (strace_stats[i].ticks) / (3693.063 * 1000000));
+            total_calls += strace_stats[i].calls;
+            total_errors += strace_stats[i].errors;
+            total_ticks += strace_stats[i].ticks;
+            cprintf("%s\t%d\t%d\t%s\n", buf, strace_stats[i].calls, strace_stats[i].errors, get_sys_call_name(i + 1));
+        }
+    }
+
+    char buf[100] = {0};
+    ftoa_fixed(buf, (total_ticks) / (3693.063 * 1000000));
+    cprintf("-------------\t------\t-------\t-------\n");
+    cprintf("%s\t%d\t%d\ttotal\n", buf, total_calls, total_errors);
+
+    return 0;
 }

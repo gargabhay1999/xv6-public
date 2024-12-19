@@ -23,6 +23,13 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int set_strace_conf(int, int, int);
+int get_strace_conf(int, int);
+int add_to_strace_dump(int, char*, char*, int, char*);
+int print_strace_dump(void);
+int add_to_strace_stat(int,int,int);
+int clear_strace_stats(void);
+int print_strace_stats(void);
 
 // ulib.c
 int stat(const char*, struct stat*);
